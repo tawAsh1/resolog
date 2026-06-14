@@ -53,6 +53,7 @@ func runTail(argv []string) error {
 	backendName := fs.String("backend", "live", "backend: live|poll")
 	follow := fs.Bool("f", false, "keep polling for new events (poll backend)")
 	since := fs.Duration("since", 0, "only fetch events newer than this ago, e.g. 10m (poll backend)")
+	until := fs.Duration("until", 0, "only fetch events older than this ago; pair with --since for a window (poll backend)")
 	noColor := fs.Bool("no-color", false, "disable colored output")
 	showTime := fs.Bool("t", false, "show timestamps")
 	sortByTime := fs.Bool("sort", false, "buffer and print in time order across streams (needs --backend poll, no -f)")
@@ -77,11 +78,14 @@ func runTail(argv []string) error {
 		return fmt.Errorf("scheme %q is unavailable (AWS config may have failed to load)", scheme)
 	}
 
-	var sinceTime time.Time
+	var sinceTime, untilTime time.Time
 	if *since > 0 {
 		sinceTime = time.Now().Add(-*since)
 	}
-	backend, err := buildBackend(*backendName, cfg, poll.Options{Follow: *follow, Since: sinceTime})
+	if *until > 0 {
+		untilTime = time.Now().Add(-*until)
+	}
+	backend, err := buildBackend(*backendName, cfg, poll.Options{Follow: *follow, Since: sinceTime, Until: untilTime})
 	if err != nil {
 		return err
 	}

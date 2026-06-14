@@ -12,19 +12,41 @@ import (
 	"github.com/tawAsh1/resolog"
 )
 
-// fakeAPI returns pre-canned pages on successive FilterLogEvents calls.
+// fakeAPI returns pre-canned pages on successive FilterLogEvents calls and
+// records the most recent input.
 type fakeAPI struct {
-	pages []*cwl.FilterLogEventsOutput
-	n     int
+	pages  []*cwl.FilterLogEventsOutput
+	n      int
+	lastIn *cwl.FilterLogEventsInput
 }
 
 func (f *fakeAPI) FilterLogEvents(ctx context.Context, in *cwl.FilterLogEventsInput, _ ...func(*cwl.Options)) (*cwl.FilterLogEventsOutput, error) {
+	f.lastIn = in
 	if f.n >= len(f.pages) {
 		return &cwl.FilterLogEventsOutput{}, nil
 	}
 	p := f.pages[f.n]
 	f.n++
 	return p, nil
+}
+
+// Until should be passed through as FilterLogEvents EndTime.
+func TestStreamSetsEndTimeFromUntil(t *testing.T) {
+	api := &fakeAPI{}
+	until := time.UnixMilli(1_700_000_000_000)
+	b := New(api, Options{Until: until})
+	ch, err := b.Stream(context.Background(), resolog.Source{LogGroup: "g"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range ch { // drain
+	}
+	if api.lastIn == nil || api.lastIn.EndTime == nil {
+		t.Fatal("EndTime not set")
+	}
+	if got := *api.lastIn.EndTime; got != until.UnixMilli() {
+		t.Errorf("EndTime = %d, want %d", got, until.UnixMilli())
+	}
 }
 
 func ev(id, msg string, ts int64) cwltypes.FilteredLogEvent {

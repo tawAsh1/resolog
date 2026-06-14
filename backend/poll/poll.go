@@ -35,6 +35,11 @@ type Options struct {
 	// Since, if non-zero, is the earliest event time to fetch. Zero means "from
 	// the beginning of what CloudWatch retains".
 	Since time.Time
+
+	// Until, if non-zero, is the latest event time to fetch (FilterLogEvents
+	// EndTime). Zero means "no upper bound". Pair with Since for a window, or to
+	// scope a finished resource's read so later/foreign lines aren't pulled in.
+	Until time.Time
 }
 
 // Backend pages historical (and, in follow mode, ongoing) events for a source.
@@ -102,6 +107,9 @@ func (b *Backend) pollOnce(ctx context.Context, src resolog.Source, startMillis 
 	}
 	if startMillis > 0 {
 		in.StartTime = aws.Int64(startMillis)
+	}
+	if !b.opts.Until.IsZero() {
+		in.EndTime = aws.Int64(b.opts.Until.UnixMilli())
 	}
 
 	for {

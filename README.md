@@ -37,8 +37,26 @@ resolog ls log-group /aws/lambda/
 
 References are `<scheme>:<rest>`, or a bare log group name. Schemes:
 `log-group`, `sfn-execution`, `batch-job`, `lambda`. Flags: `--backend
-live|poll`, `-f` follow, `--since 10m`, `--sort` (buffer a finished resource and
-print in time order across streams; poll only), `-t` timestamps, `--no-color`.
+live|poll`, `-f` follow, `--since 10m`, `--until 5m` (window upper bound, poll),
+`--sort` (poll only; see Ordering), `-t` timestamps, `--no-color`.
+
+## Ordering
+
+By default lines print in **arrival order** — interleaved across sources, like
+`docker compose logs`. Across different streams this is *not* time order.
+
+`--sort` (poll, finished resources only) buffers everything and prints in time
+order by **each resource's own reported clock**. Honest caveats:
+
+- Clocks differ across resources; resolog never claims causal order between them.
+- CloudWatch ingestion lags, so a finished task's last lines (e.g. a failure
+  stack trace) can land late and fall outside the window.
+- A whole-log-group source (e.g. a Lambda tailed by group) can include lines
+  from *other* invocations within the window.
+- `--sort` waits for the fetch to finish before printing; on Ctrl-C it flushes
+  the ordered prefix it has so far.
+
+The live frontier is intentionally never reordered.
 
 ## Library
 
