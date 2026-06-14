@@ -55,6 +55,7 @@ func runTail(argv []string) error {
 	since := fs.Duration("since", 0, "only fetch events newer than this ago, e.g. 10m (poll backend)")
 	noColor := fs.Bool("no-color", false, "disable colored output")
 	showTime := fs.Bool("t", false, "show timestamps")
+	sortByTime := fs.Bool("sort", false, "buffer and print in time order across streams (needs --backend poll, no -f)")
 	fs.Usage = usage(fs)
 	if err := fs.Parse(argv); err != nil {
 		return err
@@ -90,8 +91,17 @@ func runTail(argv []string) error {
 		return err
 	}
 
-	sink := resolog.NewRenderer(os.Stdout, !*noColor, *showTime)
-	sink.MaxGutter = gutterCap()
+	renderer := resolog.NewRenderer(os.Stdout, !*noColor, *showTime)
+	renderer.MaxGutter = gutterCap()
+
+	var sink resolog.Sink = renderer
+	if *sortByTime {
+		if *backendName != "poll" || *follow {
+			return errors.New("--sort requires --backend poll without -f (it buffers a finished resource, then prints in time order)")
+		}
+		sink = resolog.SortingSink{Inner: renderer}
+	}
+
 	onError := func(s resolog.Source, err error) {
 		fmt.Fprintf(os.Stderr, "resolog: %s: %v\n", s.LogGroup, err)
 	}

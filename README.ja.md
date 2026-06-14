@@ -28,7 +28,7 @@ go install github.com/tawAsh1/resolog/cmd/resolog@latest
 ```sh
 resolog log-group:/aws/lambda/my-fn                 # リアルタイムに tail
 resolog --backend poll -f log-group:/my/group       # 履歴を出してから追従
-resolog --backend poll --since 1h sfn-execution:<実行ARN>   # 実行を丸ごと
+resolog --backend poll --since 1h --sort -t sfn-execution:<実行ARN>   # 完了した実行を時刻順で
 
 resolog ls sfn-execution <ステートマシンARN>        # 実行を一覧して選ぶ
 resolog ls batch-job <キュー>
@@ -37,7 +37,8 @@ resolog ls log-group /aws/lambda/
 
 参照は `<スキーム>:<残り>`、またはロググループ名そのままです。スキームは `log-group`、
 `sfn-execution`、`batch-job`、`lambda` の4つ。フラグは `--backend live|poll`、
-`-f`(追従)、`--since 10m`、`-t`(タイムスタンプ)、`--no-color`。
+`-f`(追従)、`--since 10m`、`--sort`(完了したリソースをバッファしてストリーム横断で
+時刻順に出力。poll 専用)、`-t`(タイムスタンプ)、`--no-color`。
 
 ## ライブラリとして
 
