@@ -49,9 +49,26 @@ type Resolver struct {
 	pollInterval time.Duration
 }
 
+// Option configures a Resolver.
+type Option func(*Resolver)
+
+// WithPollInterval sets how often a still-running job is re-polled for new child
+// log streams. Values <= 0 are ignored. Defaults to 3s.
+func WithPollInterval(d time.Duration) Option {
+	return func(r *Resolver) {
+		if d > 0 {
+			r.pollInterval = d
+		}
+	}
+}
+
 // New builds a batch Resolver from an AWS Batch client.
-func New(api API) *Resolver {
-	return &Resolver{api: api, pollInterval: defaultPollInterval}
+func New(api API, opts ...Option) *Resolver {
+	r := &Resolver{api: api, pollInterval: defaultPollInterval}
+	for _, o := range opts {
+		o(r)
+	}
+	return r
 }
 
 // Scheme implements resolog.Resolver.

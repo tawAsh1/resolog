@@ -54,6 +54,17 @@ func drain(t *testing.T, res resolog.Resolution) []resolog.Source {
 	}
 }
 
+func TestWithPollInterval(t *testing.T) {
+	api := fakeAPI{jobs: map[string]types.JobDetail{}}
+	if r := New(api, WithPollInterval(7*time.Millisecond)); r.pollInterval != 7*time.Millisecond {
+		t.Errorf("pollInterval = %v, want 7ms", r.pollInterval)
+	}
+	// Non-positive values are ignored (keep the default).
+	if r := New(api, WithPollInterval(0)); r.pollInterval != defaultPollInterval {
+		t.Errorf("pollInterval = %v, want default %v", r.pollInterval, defaultPollInterval)
+	}
+}
+
 func TestResolveSingleJob(t *testing.T) {
 	api := fakeAPI{jobs: map[string]types.JobDetail{
 		"j1": job("j1", "crunch", "crunch/default/abc", types.JobStatusSucceeded),
