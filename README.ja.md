@@ -2,6 +2,7 @@
 
 リソースを起点に CloudWatch のログを追いかけるツールです。名前は resolve + log から。
 
+[![CI](https://github.com/tawAsh1/resolog/actions/workflows/ci.yml/badge.svg)](https://github.com/tawAsh1/resolog/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/tawAsh1/resolog.svg)](https://pkg.go.dev/github.com/tawAsh1/resolog)
 [English README](README.md)
 

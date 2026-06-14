@@ -2,6 +2,7 @@
 
 A resource-aware CloudWatch log tailer. **resolog** = *resolve* + *log*.
 
+[![CI](https://github.com/tawAsh1/resolog/actions/workflows/ci.yml/badge.svg)](https://github.com/tawAsh1/resolog/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/tawAsh1/resolog.svg)](https://pkg.go.dev/github.com/tawAsh1/resolog)
 [日本語 README](README.ja.md)
 
