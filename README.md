@@ -20,6 +20,13 @@ plus every Lambda and Batch task that execution ran, all together.
 go install github.com/tawAsh1/resolog/cmd/resolog@latest
 ```
 
+Or download a binary from [Releases](https://github.com/tawAsh1/resolog/releases).
+They carry build-provenance attestations:
+
+```sh
+gh attestation verify resolog_*.tar.gz --repo tawAsh1/resolog
+```
+
 ## Usage
 
 The real backends use the standard AWS credential chain. The default backend is

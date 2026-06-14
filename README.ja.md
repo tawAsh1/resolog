@@ -20,6 +20,13 @@ resolog はその手前の問い、「このリソースは結局どのログを
 go install github.com/tawAsh1/resolog/cmd/resolog@latest
 ```
 
+[Releases](https://github.com/tawAsh1/resolog/releases) にビルド済みバイナリもあります。
+ビルドプロベナンス署名つきなので検証できます:
+
+```sh
+gh attestation verify resolog_*.tar.gz --repo tawAsh1/resolog
+```
+
 ## 使い方
 
 実際にログを取るバックエンドは標準の AWS 認証情報チェーンを使います。デフォルトのバックエンドは

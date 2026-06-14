@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"strings"
 	"syscall"
 	"text/tabwriter"
@@ -34,6 +35,22 @@ import (
 	"github.com/tawAsh1/resolog/resolver/sfn"
 )
 
+// version is overridden at build time via -ldflags "-X main.version=...".
+var version = "dev"
+
+// resolveVersion falls back to the module version from build info when no
+// ldflags were set — `go install .../resolog/cmd/resolog@v0.1.0` embeds the
+// version there, so those installs report it instead of "dev".
+func resolveVersion() string {
+	if version != "dev" {
+		return version
+	}
+	if bi, ok := debug.ReadBuildInfo(); ok && bi.Main.Version != "" && bi.Main.Version != "(devel)" {
+		return bi.Main.Version
+	}
+	return version
+}
+
 func main() {
 	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, "resolog:", err)
@@ -42,10 +59,15 @@ func main() {
 }
 
 func run(argv []string) error {
-	if len(argv) > 0 && argv[0] == "ls" {
+	switch {
+	case len(argv) > 0 && (argv[0] == "version" || argv[0] == "--version" || argv[0] == "-v"):
+		fmt.Println("resolog", resolveVersion())
+		return nil
+	case len(argv) > 0 && argv[0] == "ls":
 		return runLs(argv[1:])
+	default:
+		return runTail(argv)
 	}
-	return runTail(argv)
 }
 
 func runTail(argv []string) error {
@@ -192,6 +214,7 @@ func usage(fs *flag.FlagSet) func() {
 
 usage: resolog [flags] <ref>
        resolog ls <scheme> [filter]
+       resolog version
 
   <ref> is "<scheme>:<rest>" or a bare log group name. Schemes:
     log-group:<group[:stream]>   tail a log group (default if no scheme)
