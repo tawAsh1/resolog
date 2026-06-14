@@ -2,6 +2,7 @@ package resolog
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"time"
 )
@@ -17,12 +18,17 @@ import (
 // backend, where the stream never ends. The CLI's --sort flag wires it and
 // requires `--backend poll` without `-f`.
 //
+// Limit caps how many events it will buffer; past it Consume returns an error
+// rather than growing without bound (OOM). 0 means unlimited. Bound the input
+// with --since/--until instead of relying on a huge limit.
+//
 // If the context is cancelled (Ctrl-C) mid-fetch, it still flushes the ordered
 // prefix it has buffered rather than discarding everything. Ordering is
 // content-stable (see lessEvent), so the same events always print in the same
 // order — golden-test friendly and free of spurious diff churn.
 type SortingSink struct {
 	Inner Sink
+	Limit int
 }
 
 // Consume implements Sink.
@@ -41,17 +47,28 @@ func (s SortingSink) Consume(ctx context.Context, events <-chan Event) error {
 				return s.flush(ctx, buf)
 			}
 			buf = append(buf, ev)
+			if s.Limit > 0 && len(buf) > s.Limit {
+				return fmt.Errorf("--sort buffered more than %d events; narrow the window with --since/--until, raise --sort-max, or drop --sort for arrival-order output", s.Limit)
+			}
 		}
 	}
 }
 
 func (s SortingSink) flush(ctx context.Context, buf []Event) error {
 	sort.SliceStable(buf, func(i, j int) bool { return lessEvent(buf[i], buf[j]) })
-	out := make(chan Event, len(buf))
-	for _, ev := range buf {
-		out <- ev
-	}
-	close(out)
+	// Feed via an unbuffered channel rather than a len(buf)-sized one, so we
+	// don't hold a second full copy of the events in the channel buffer.
+	out := make(chan Event)
+	go func() {
+		defer close(out)
+		for i := range buf {
+			select {
+			case out <- buf[i]:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
 	return s.Inner.Consume(ctx, out)
 }
 

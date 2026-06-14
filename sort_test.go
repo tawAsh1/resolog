@@ -79,6 +79,19 @@ func TestSortingSinkTieBreakIsContentStable(t *testing.T) {
 	}
 }
 
+// Exceeding Limit must error instead of buffering without bound.
+func TestSortingSinkLimit(t *testing.T) {
+	in := make(chan Event, 3)
+	for i := 0; i < 3; i++ {
+		in <- Event{Message: "x"}
+	}
+	close(in)
+	err := (SortingSink{Inner: &collectSink{}, Limit: 2}).Consume(context.Background(), in)
+	if err == nil {
+		t.Fatal("expected an error when the buffer exceeds Limit")
+	}
+}
+
 // On cancel mid-fetch, the ordered prefix already buffered must still be flushed.
 func TestSortingSinkFlushesOnCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())

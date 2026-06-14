@@ -55,8 +55,11 @@ order by **each resource's own reported clock**. Honest caveats:
   from *other* invocations within the window.
 - `--sort` waits for the fetch to finish before printing; on Ctrl-C it flushes
   the ordered prefix it has so far.
+- `--sort` holds everything in memory; it errors past `--sort-max` events
+  (default 1,000,000) rather than risking OOM. Narrow with `--since`/`--until`.
 
-The live frontier is intentionally never reordered.
+The live frontier is intentionally never reordered. Without `--sort`, streaming
+uses bounded memory (a page at a time) regardless of how much you tail.
 
 ## Library
 

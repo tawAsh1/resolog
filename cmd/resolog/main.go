@@ -57,6 +57,7 @@ func runTail(argv []string) error {
 	noColor := fs.Bool("no-color", false, "disable colored output")
 	showTime := fs.Bool("t", false, "show timestamps")
 	sortByTime := fs.Bool("sort", false, "buffer and print in time order across streams (needs --backend poll, no -f)")
+	sortMax := fs.Int("sort-max", 1_000_000, "max events --sort buffers before erroring (0 = unlimited)")
 	fs.Usage = usage(fs)
 	if err := fs.Parse(argv); err != nil {
 		return err
@@ -103,7 +104,7 @@ func runTail(argv []string) error {
 		if *backendName != "poll" || *follow {
 			return errors.New("--sort requires --backend poll without -f (it buffers a finished resource, then prints in time order)")
 		}
-		sink = resolog.SortingSink{Inner: renderer}
+		sink = resolog.SortingSink{Inner: renderer, Limit: *sortMax}
 	}
 
 	onError := func(s resolog.Source, err error) {
