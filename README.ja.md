@@ -39,27 +39,10 @@ resolog ls log-group /aws/lambda/
 `sfn-execution`、`batch-job`、`lambda` の4つ。フラグは `--backend live|poll`、
 `-f`(追従)、`--since 10m`、`-t`(タイムスタンプ)、`--no-color`。
 
-## しくみ
-
-直交する3つの継ぎ目でできていて、利用側はどの層からでも使えます。
-
-| 継ぎ目 | 役割 |
-| --- | --- |
-| Resolver | リソース参照 → ログ源(+ 終了シグナル) |
-| Backend | ログ源 → イベント列 |
-| Sink | イベント列 → 出力(既定はインタリーブ表示) |
-
-レジストリやプラグイン機構はありません。resolver はただのパッケージで、利用側が明示的に
-組み合わせます。スキームの振り分けは CLI 側にあり、ライブラリ本体には持ち込みません。
-覚えておくとよい方針が2つあります。終了判定は必ず**リソースのステータスで握り、「新着が
-止まった」では判断しない**こと(CloudWatch は遅れるし、最後の行は後から届きます)。
-そして各 resolver/backend は必要な AWS クライアントの一部だけをローカルな interface として
-宣言するので、使わないサービスの SDK が `go.mod` に降りてきません。
-
-Resolver は `log-group`、`sfn-execution`(目玉)、`batch-job`(配列ジョブ対応)、`lambda`。
-Backend は `live`(StartLiveTail)、`poll`(FilterLogEvents)。
-
 ## ライブラリとして
+
+resolog はライブラリでもあり、CLI はその一利用者にすぎません。
+詳しくは [パッケージドキュメント](https://pkg.go.dev/github.com/tawAsh1/resolog) を。
 
 ```go
 res, _ := sfn.New(sfnClient, sfn.WithBatchResolver(batch.New(batchClient))).
@@ -70,13 +53,9 @@ resolog.Tail(ctx, res, livetail.New(logsClient), sink)
 
 ## 状態
 
-v0、まだ初期段階です。resolver と backend はすべて実装済みで、fake の AWS API に対する
-ユニットテストは通っていますが、本物の AWS をつないだ通し確認はまだしていません。公開する
-API(3つの interface といくつかの入口)は意図的に小さく保っています。
-
-resolog は [batchkoi](https://github.com/tawAsh1/batchkoi) のログ tailer を切り出したものです。
-batchkoi が出どころで、最初の利用者になる予定です。resolog 側から batchkoi を import する
-ことはありません。
+v0、まだ初期段階です。resolver と backend はすべて実装・テスト済みですが、本物の AWS を
+つないだ通し確認はまだです。[batchkoi](https://github.com/tawAsh1/batchkoi) のログ tailer を
+切り出したものです。
 
 ## ライセンス
 
