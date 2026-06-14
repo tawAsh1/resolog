@@ -23,6 +23,7 @@ import (
 	cwl "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	awslambda "github.com/aws/aws-sdk-go-v2/service/lambda"
 	awssfn "github.com/aws/aws-sdk-go-v2/service/sfn"
+	"golang.org/x/term"
 
 	"github.com/tawAsh1/resolog"
 	"github.com/tawAsh1/resolog/backend/livetail"
@@ -90,10 +91,35 @@ func runTail(argv []string) error {
 	}
 
 	sink := resolog.NewRenderer(os.Stdout, !*noColor, *showTime)
+	sink.MaxGutter = gutterCap()
 	onError := func(s resolog.Source, err error) {
 		fmt.Fprintf(os.Stderr, "resolog: %s: %v\n", s.LogGroup, err)
 	}
 	return resolog.Tail(ctx, res, backend, sink, resolog.WithErrorHandler(onError))
+}
+
+// gutterCap returns the max width for the label gutter, based on the terminal.
+// When stdout is not a terminal (piped), it returns 0 so labels are never
+// truncated — downstream tools should see full names. Otherwise it caps the
+// gutter at a third of the width, clamped to a sane range, so a long resource
+// name can't push messages off the screen.
+func gutterCap() int {
+	fd := int(os.Stdout.Fd())
+	if !term.IsTerminal(fd) {
+		return 0
+	}
+	w, _, err := term.GetSize(fd)
+	if err != nil || w <= 0 {
+		return 0
+	}
+	cap := w / 3
+	if cap < 12 {
+		cap = 12
+	}
+	if cap > 40 {
+		cap = 40
+	}
+	return cap
 }
 
 // runLs lists the refs a resolver can enumerate: `resolog ls <scheme> [filter]`.

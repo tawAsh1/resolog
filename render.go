@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 // Renderer is the default Sink: a docker-compose-style interleaved printer that
@@ -25,10 +27,17 @@ type Renderer struct {
 	// ShowTime prepends each line with the event timestamp.
 	ShowTime bool
 
+	// MaxGutter caps the width (in runes) of the label gutter. Labels longer
+	// than this are middle-ellipsized so a long resource name (e.g. a folded log
+	// stream id) can't push every message off the right edge. 0 means no cap —
+	// appropriate when output is piped, so downstream tools see full labels. The
+	// CLI sets it from the terminal width.
+	MaxGutter int
+
 	mu      sync.Mutex
 	colors  map[string]int // Source.Key -> palette index
 	nextHue int
-	width   int // widest label seen, for gutter alignment
+	width   int // widest label seen (runes), for gutter alignment
 }
 
 // palette is a set of readable ANSI 256-color foreground codes.
@@ -64,18 +73,21 @@ func (r *Renderer) print(ev Event) error {
 	if label == "" {
 		label = ev.Source.Key
 	}
-	if len(label) > r.width {
-		r.width = len(label)
+	if r.MaxGutter > 0 {
+		label = truncateLabel(label, r.MaxGutter)
 	}
-	gutter := fmt.Sprintf("%-*s", r.width, label)
+	w := utf8.RuneCountInString(label)
+	if w > r.width {
+		r.width = w
+	}
+	// Pad by runes, not bytes: labels can contain multibyte glyphs (e.g. "λ").
+	gutter := label + strings.Repeat(" ", r.width-w)
+
+	if r.Color {
+		gutter = fmt.Sprintf("\x1b[38;5;%dm%s\x1b[0m", r.colorFor(ev.Source.Key), gutter)
+	}
 
 	var line string
-	switch {
-	case r.Color:
-		code := r.colorFor(ev.Source.Key)
-		gutter = fmt.Sprintf("\x1b[38;5;%dm%s\x1b[0m", code, gutter)
-	}
-
 	if r.ShowTime {
 		ts := ev.Timestamp
 		if ts.IsZero() {
@@ -88,6 +100,26 @@ func (r *Renderer) print(ev Event) error {
 
 	_, err := io.WriteString(r.Out, line)
 	return err
+}
+
+// truncateLabel shortens s to at most max runes, putting an ellipsis in the
+// middle so both the distinguishing prefix (service path) and suffix (name /
+// stream id) survive.
+func truncateLabel(s string, max int) string {
+	if max <= 0 {
+		return s
+	}
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	if max == 1 {
+		return "…"
+	}
+	keep := max - 1 // leave room for the ellipsis
+	head := (keep + 1) / 2
+	tail := keep - head
+	return string(r[:head]) + "…" + string(r[len(r)-tail:])
 }
 
 func (r *Renderer) colorFor(key string) int {
