@@ -29,7 +29,6 @@ The real backends use the standard AWS credential chain. The default backend is
 resolog log-group:/aws/lambda/my-fn                 # real-time tail
 resolog --backend poll -f log-group:/my/group       # historical, then follow
 resolog --backend poll --since 1h sfn-execution:<execution-arn>   # a whole execution
-resolog --backend mock log-group:demo               # synthetic events, no AWS
 
 resolog ls sfn-execution <state-machine-arn>        # list executions, pick one
 resolog ls batch-job <queue>
@@ -38,7 +37,7 @@ resolog ls log-group /aws/lambda/
 
 References are `<scheme>:<rest>`, or a bare log group name. Schemes:
 `log-group`, `sfn-execution`, `batch-job`, `lambda`. Flags: `--backend
-live|poll|mock`, `-f` follow, `--since 10m`, `-t` timestamps, `--no-color`.
+live|poll`, `-f` follow, `--since 10m`, `-t` timestamps, `--no-color`.
 
 ## How it works
 
@@ -58,7 +57,7 @@ declares the slice of the AWS client it needs as a local interface, so unused
 service SDKs stay out of your `go.mod`.
 
 Resolvers: `log-group`, `sfn-execution` (flagship), `batch-job` (array-aware),
-`lambda`. Backends: `live` (StartLiveTail), `poll` (FilterLogEvents), `mock`.
+`lambda`. Backends: `live` (StartLiveTail), `poll` (FilterLogEvents).
 
 ## Library
 

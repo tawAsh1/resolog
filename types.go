@@ -70,7 +70,7 @@ type Resolution struct {
 }
 
 // Backend turns a Source into a stream of Events. Implementations: livetail
-// (StartLiveTail, real-time), poll (GetLogEvents, historical), mock (demo).
+// (StartLiveTail, real-time) and poll (FilterLogEvents, historical).
 type Backend interface {
 	// Stream returns a channel of Events for src. The channel is closed when
 	// the stream ends (historical exhausted, or ctx cancelled). A live backend

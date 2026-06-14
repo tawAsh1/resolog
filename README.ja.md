@@ -29,7 +29,6 @@ go install github.com/tawAsh1/resolog/cmd/resolog@latest
 resolog log-group:/aws/lambda/my-fn                 # リアルタイムに tail
 resolog --backend poll -f log-group:/my/group       # 履歴を出してから追従
 resolog --backend poll --since 1h sfn-execution:<実行ARN>   # 実行を丸ごと
-resolog --backend mock log-group:demo               # 合成ログ。AWS 不要
 
 resolog ls sfn-execution <ステートマシンARN>        # 実行を一覧して選ぶ
 resolog ls batch-job <キュー>
@@ -37,7 +36,7 @@ resolog ls log-group /aws/lambda/
 ```
 
 参照は `<スキーム>:<残り>`、またはロググループ名そのままです。スキームは `log-group`、
-`sfn-execution`、`batch-job`、`lambda` の4つ。フラグは `--backend live|poll|mock`、
+`sfn-execution`、`batch-job`、`lambda` の4つ。フラグは `--backend live|poll`、
 `-f`(追従)、`--since 10m`、`-t`(タイムスタンプ)、`--no-color`。
 
 ## しくみ
@@ -58,7 +57,7 @@ resolog ls log-group /aws/lambda/
 宣言するので、使わないサービスの SDK が `go.mod` に降りてきません。
 
 Resolver は `log-group`、`sfn-execution`(目玉)、`batch-job`(配列ジョブ対応)、`lambda`。
-Backend は `live`(StartLiveTail)、`poll`(FilterLogEvents)、`mock`。
+Backend は `live`(StartLiveTail)、`poll`(FilterLogEvents)。
 
 ## ライブラリとして
 

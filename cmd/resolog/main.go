@@ -26,7 +26,6 @@ import (
 
 	"github.com/tawAsh1/resolog"
 	"github.com/tawAsh1/resolog/backend/livetail"
-	"github.com/tawAsh1/resolog/backend/mock"
 	"github.com/tawAsh1/resolog/backend/poll"
 	"github.com/tawAsh1/resolog/resolver/batch"
 	"github.com/tawAsh1/resolog/resolver/lambda"
@@ -50,7 +49,7 @@ func run(argv []string) error {
 
 func runTail(argv []string) error {
 	fs := flag.NewFlagSet("resolog", flag.ContinueOnError)
-	backendName := fs.String("backend", "live", "backend: live|poll|mock")
+	backendName := fs.String("backend", "live", "backend: live|poll")
 	follow := fs.Bool("f", false, "keep polling for new events (poll backend)")
 	since := fs.Duration("since", 0, "only fetch events newer than this ago, e.g. 10m (poll backend)")
 	noColor := fs.Bool("no-color", false, "disable colored output")
@@ -168,12 +167,13 @@ flags:
 	}
 }
 
-// loadConfig loads AWS config once; nil means it failed (offline / no creds),
-// in which case only the log-group resolver + mock backend are available.
+// loadConfig loads AWS config once; nil means it failed (a real backend then
+// reports that it needs config). Resolution of a bare log-group ref is lexical
+// and still works, but there is nothing to tail it with.
 func loadConfig(ctx context.Context) *aws.Config {
 	c, err := config.LoadDefaultConfig(ctx)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "resolog: AWS config unavailable, only log-group + mock work:", err)
+		fmt.Fprintln(os.Stderr, "resolog: AWS config unavailable:", err)
 		return nil
 	}
 	return &c
@@ -217,8 +217,6 @@ func isKnownScheme(s string, resolvers map[string]resolog.Resolver) bool {
 
 func buildBackend(name string, cfg *aws.Config, opts poll.Options) (resolog.Backend, error) {
 	switch name {
-	case "mock":
-		return mock.New(), nil
 	case "poll":
 		if cfg == nil {
 			return nil, fmt.Errorf("backend %q needs AWS config, which failed to load", name)
