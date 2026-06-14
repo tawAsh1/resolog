@@ -1,6 +1,6 @@
 module github.com/tawAsh1/resolog
 
-go 1.25
+go 1.24.0
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.42.0
