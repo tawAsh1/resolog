@@ -68,10 +68,12 @@ order by **each resource's own reported clock**. Honest caveats:
 - `--sort` waits for the fetch to finish before printing; on Ctrl-C it flushes
   the ordered prefix it has so far.
 - `--sort` holds everything in memory; it errors past `--sort-max` events
-  (default 1,000,000) rather than risking OOM. Narrow with `--since`/`--until`.
+  (default 1,000,000) rather than risk running out of memory. Narrow with
+  `--since`/`--until`.
 
-The live frontier is intentionally never reordered. Without `--sort`, streaming
-uses bounded memory (a page at a time) regardless of how much you tail.
+Live output — the newest lines as they arrive — is intentionally never
+reordered. Without `--sort`, streaming uses a fixed amount of memory (a page at
+a time) no matter how much you tail.
 
 ## Library
 
@@ -88,7 +90,7 @@ resolog.Tail(ctx, res, livetail.New(logsClient), sink)
 ## Status
 
 v0, early. Every resolver and backend is implemented and unit-tested, but the
-real-AWS paths have not had a production shakedown yet. Extracted from
+real-AWS paths have not been exercised in production yet. Extracted from
 [batchkoi](https://github.com/tawAsh1/batchkoi)'s log tailer.
 
 ## License
