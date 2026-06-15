@@ -11,6 +11,8 @@ package livetail
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -38,16 +40,52 @@ type API interface {
 
 // Backend tails sources live via StartLiveTail.
 type Backend struct {
-	api API
+	api    API
+	region string
+	// account is the AWS account id that owns the log groups. region and account
+	// are needed because StartLiveTail identifies log groups by ARN, but a Source
+	// carries only the group name; see arnFor.
+	account string
 }
 
-// New builds a live Backend from a CloudWatch Logs client.
-func New(api API) *Backend { return &Backend{api: api} }
+// New builds a live Backend from a CloudWatch Logs client. region and account
+// (the AWS region and account id that own the log groups) are required: a Source
+// names its log group, but StartLiveTail identifies log groups by ARN, so the
+// backend rebuilds the ARN from these.
+func New(api API, region, account string) *Backend {
+	return &Backend{api: api, region: region, account: account}
+}
+
+// arnFor builds the log-group ARN StartLiveTail wants from a bare group name.
+// The ARN must not end with ":*" (the StartLiveTail form), so this appends none.
+func (b *Backend) arnFor(group string) (string, error) {
+	if b.region == "" || b.account == "" {
+		return "", fmt.Errorf("livetail: need AWS region and account to form a log-group ARN (have region=%q account=%q)", b.region, b.account)
+	}
+	return "arn:" + partitionForRegion(b.region) + ":logs:" + b.region + ":" + b.account + ":log-group:" + group, nil
+}
+
+// partitionForRegion maps a region to its ARN partition. The common commercial
+// partition is "aws"; China and GovCloud have their own.
+func partitionForRegion(region string) string {
+	switch {
+	case strings.HasPrefix(region, "cn-"):
+		return "aws-cn"
+	case strings.HasPrefix(region, "us-gov-"):
+		return "aws-us-gov"
+	default:
+		return "aws"
+	}
+}
 
 // Stream implements resolog.Backend. It opens a Live Tail session for src and
 // relays its events until ctx is cancelled or the session ends.
 func (b *Backend) Stream(ctx context.Context, src resolog.Source) (<-chan resolog.Event, error) {
-	in := &cwl.StartLiveTailInput{LogGroupIdentifiers: []string{src.LogGroup}}
+	arn, err := b.arnFor(src.LogGroup)
+	if err != nil {
+		return nil, err
+	}
+	in := &cwl.StartLiveTailInput{LogGroupIdentifiers: []string{arn}}
 	if src.LogStream != "" {
 		in.LogStreamNames = []string{src.LogStream}
 	}
