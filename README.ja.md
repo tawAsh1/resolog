@@ -12,7 +12,7 @@ resolog はその手前の問い、「このリソースは結局どのログを
 解決したストリームは docker-compose のように色分けして1つに混ぜて流します。
 
 目玉は Step Functions の実行 ARN を渡すパターンです。ステートマシン本体に加えて、その実行が
-走らせた Lambda や Batch のタスクのログまでまとめて tail します。
+走らせた Lambda・Batch・ECS のタスクのログまでまとめて tail します。
 
 ## インストール
 
@@ -37,13 +37,17 @@ resolog log-group:/aws/lambda/my-fn                 # リアルタイムに tail
 resolog --backend poll -f log-group:/my/group       # 履歴を出してから追従
 resolog --backend poll --since 1h --sort -t sfn-execution:<実行ARN>   # 完了した実行を時刻順で
 
+resolog arn:aws:ecs:us-east-1:123:task/prod/abc123  # 生 ARN をそのまま貼れる(スキーム不要)
+
 resolog ls sfn-execution <ステートマシンARN>        # 実行を一覧して選ぶ
 resolog ls batch-job <キュー>
+resolog ls ecs-task <クラスタ>
 resolog ls log-group /aws/lambda/
 ```
 
-参照は `<スキーム>:<残り>`、またはロググループ名そのままです。スキームは `log-group`、
-`sfn-execution`、`batch-job`、`lambda` の4つ。フラグは `--backend live|poll`、
+参照は生のリソース ARN、`<スキーム>:<残り>`、またはロググループ名そのままです。生 ARN は
+サービス名で振り分けられるので、そのまま貼れます。スキームは `log-group`、`sfn-execution`、
+`batch-job`、`lambda`、`ecs-task`(コンテナごとに1ストリーム)の5つ。フラグは `--backend live|poll`、
 `-f`(追従)、`--since 10m`、`--until 5m`(窓の上限、poll)、`--sort`(poll 専用、下記)、
 `-t`(タイムスタンプ)、`--no-color`。
 

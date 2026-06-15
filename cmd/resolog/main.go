@@ -22,6 +22,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	awsbatch "github.com/aws/aws-sdk-go-v2/service/batch"
 	cwl "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+	awsecs "github.com/aws/aws-sdk-go-v2/service/ecs"
 	awslambda "github.com/aws/aws-sdk-go-v2/service/lambda"
 	awssfn "github.com/aws/aws-sdk-go-v2/service/sfn"
 	"golang.org/x/term"
@@ -30,6 +31,7 @@ import (
 	"github.com/tawAsh1/resolog/backend/livetail"
 	"github.com/tawAsh1/resolog/backend/poll"
 	"github.com/tawAsh1/resolog/resolver/batch"
+	"github.com/tawAsh1/resolog/resolver/ecs"
 	"github.com/tawAsh1/resolog/resolver/lambda"
 	"github.com/tawAsh1/resolog/resolver/loggroup"
 	"github.com/tawAsh1/resolog/resolver/sfn"
@@ -216,14 +218,16 @@ usage: resolog [flags] <ref>
        resolog ls <scheme> [filter]
        resolog version
 
-  <ref> is "<scheme>:<rest>" or a bare log group name. Schemes:
+  <ref> is a raw resource ARN, "<scheme>:<rest>", or a bare log group name.
+  A raw ARN dispatches by its service, so you can paste one as-is. Schemes:
     log-group:<group[:stream]>   tail a log group (default if no scheme)
-    sfn-execution:<arn>          tail a Step Functions execution (flagship)
+    sfn-execution:<arn>          tail a Step Functions execution (primary)
     batch-job:<jobId>            tail an AWS Batch job
     lambda:<name>                tail a Lambda function
+    ecs-task:<arn|cluster/id>    tail an ECS task (one stream per container)
 
   ls filters: log-group=<prefix>  sfn-execution=<state-machine-arn>
-              batch-job=<queue>   lambda=<name-prefix>
+              batch-job=<queue>   lambda=<name-prefix>  ecs-task=<cluster>
 
 flags:
 `)
@@ -251,27 +255,76 @@ func buildResolvers(cfg *aws.Config) map[string]resolog.Resolver {
 		return map[string]resolog.Resolver{loggroup.Scheme: loggroup.New()}
 	}
 	batchResolver := batch.New(awsbatch.NewFromConfig(*cfg))
+	ecsResolver := ecs.New(awsecs.NewFromConfig(*cfg))
 	return map[string]resolog.Resolver{
 		loggroup.Scheme: loggroup.New(loggroup.WithClient(cwl.NewFromConfig(*cfg))),
 		batch.Scheme:    batchResolver,
-		// The flagship delegates running Batch tasks to the batch resolver so it
-		// can tail jobs that haven't emitted a log stream into the history yet.
-		sfn.Scheme:    sfn.New(awssfn.NewFromConfig(*cfg), sfn.WithBatchResolver(batchResolver)),
+		// The sfn resolver delegates running Batch / ECS tasks to their resolvers
+		// so it can tail work that hasn't emitted a log stream into the history yet.
+		sfn.Scheme: sfn.New(awssfn.NewFromConfig(*cfg),
+			sfn.WithBatchResolver(batchResolver),
+			sfn.WithECSResolver(ecsResolver)),
 		lambda.Scheme: lambda.New(awslambda.NewFromConfig(*cfg)),
+		ecs.Scheme:    ecsResolver,
 	}
 }
 
-// splitRef separates a "<scheme>:<rest>" reference. The scheme must be a known
-// key; otherwise the whole string is treated as a bare log-group reference.
-// Index on the first ":" is safe even for ARNs ("arn:aws:..."), because the
-// scheme prefix is checked against the known set first.
+// splitRef turns a CLI argument into the (scheme, ref) pair the dispatch table
+// expects. Three forms, tried in order:
+//
+//  1. A raw resource ARN ("arn:aws:ecs:...:task/...") — dispatched by the ARN's
+//     own service, so you can paste an ARN without prefixing it with a scheme.
+//  2. An explicit "<scheme>:<rest>" shorthand ("batch-job:abc", "log-group:/x").
+//  3. Anything else — a bare log-group name.
 func splitRef(arg string, resolvers map[string]resolog.Resolver) (scheme, ref string) {
+	if s, r, ok := arnRef(arg); ok && isKnownScheme(s, resolvers) {
+		return s, r
+	}
 	if i := strings.Index(arg, ":"); i >= 0 {
 		if s := arg[:i]; isKnownScheme(s, resolvers) {
 			return s, arg[i+1:]
 		}
 	}
 	return loggroup.Scheme, arg
+}
+
+// arnRef maps a raw resource ARN to the (scheme, ref) its resolver expects. The
+// ref is usually the ARN itself — the lambda and sfn resolvers already take ARNs
+// — but a couple of services key off the bare resource id, so we strip the
+// resource-type prefix for those. Returns ok=false for non-ARNs and for services
+// with no resolver, letting splitRef fall through to its other forms.
+//
+// ARN shape: arn:partition:service:region:account:resource
+func arnRef(arg string) (scheme, ref string, ok bool) {
+	p := strings.SplitN(arg, ":", 6)
+	if len(p) < 6 || p[0] != "arn" {
+		return "", "", false
+	}
+	service, resource := p[2], p[5]
+	switch service {
+	case "lambda":
+		// arn:aws:lambda:...:function:<name>[:<qualifier>]
+		return lambda.Scheme, arg, true
+	case "states":
+		if strings.HasPrefix(resource, "execution:") {
+			return sfn.Scheme, arg, true
+		}
+	case "ecs":
+		if strings.HasPrefix(resource, "task/") {
+			return ecs.Scheme, arg, true
+		}
+	case "batch":
+		// The batch resolver keys off the bare job id, not the ARN.
+		if id := strings.TrimPrefix(resource, "job/"); id != resource {
+			return batch.Scheme, id, true
+		}
+	case "logs":
+		// arn:aws:logs:...:log-group:<name>[:*] -> the bare group name.
+		if name := strings.TrimPrefix(resource, "log-group:"); name != resource {
+			return loggroup.Scheme, strings.TrimSuffix(name, ":*"), true
+		}
+	}
+	return "", "", false
 }
 
 func isKnownScheme(s string, resolvers map[string]resolog.Resolver) bool {

@@ -149,6 +149,56 @@ func TestResolveDelegatesRunningBatch(t *testing.T) {
 	}
 }
 
+// fakeECS is a stand-in delegate Resolver for ECS: it records the task ARN it
+// was asked to resolve and returns one source for it.
+type fakeECS struct{ resolved chan string }
+
+func (f *fakeECS) Scheme() string { return "ecs-task" }
+func (f *fakeECS) Resolve(ctx context.Context, ref string) (resolog.Resolution, error) {
+	f.resolved <- ref
+	src := make(chan resolog.Source, 1)
+	src <- resolog.Source{Key: "ecs:" + ref, Label: "ecs/app", LogGroup: "/ecs/g", LogStream: ref}
+	close(src)
+	return resolog.Resolution{Sources: src}, nil
+}
+
+func TestResolveDelegatesRunTask(t *testing.T) {
+	const taskArn = "arn:aws:ecs:us-east-1:123:task/prod/abc"
+	events := []types.HistoryEvent{
+		// ecs:runTask.sync appears as a TaskSubmitted whose output is the
+		// RunTask response carrying the task ARN.
+		{TaskSubmittedEventDetails: &types.TaskSubmittedEventDetails{
+			ResourceType: aws.String("ecs"),
+			Resource:     aws.String("runTask.sync"),
+			Output:       aws.String(`{"Tasks":[{"TaskArn":"` + taskArn + `"}]}`),
+		}},
+	}
+	fe := &fakeECS{resolved: make(chan string, 1)}
+	// A Batch delegate is also set, to prove ECS is still examined when the
+	// Batch branch would otherwise consume the event.
+	fb := &fakeBatch{resolved: make(chan string, 1)}
+	r := New(fakeAPI{status: types.ExecutionStatusSucceeded, events: events},
+		WithBatchResolver(fb), WithECSResolver(fe))
+
+	res, err := r.Resolve(context.Background(), "arn:...:execution:sm:exec")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := drain(t, res)
+
+	if len(got) != 1 || got[0].Key != "ecs:"+taskArn {
+		t.Fatalf("got %+v, want one delegated ecs source for %s", got, taskArn)
+	}
+	select {
+	case tarn := <-fe.resolved:
+		if tarn != taskArn {
+			t.Errorf("delegate resolved %q, want %q", tarn, taskArn)
+		}
+	default:
+		t.Error("ecs delegate was not invoked")
+	}
+}
+
 func TestLambdaName(t *testing.T) {
 	cases := map[string]string{
 		"arn:aws:lambda:us-east-1:123:function:Foo:PROD": "Foo",

@@ -8,7 +8,7 @@ import (
 )
 
 // SortingSink buffers every event and, once the stream ends, emits them to Inner
-// ordered by event time. Tail's fan-in interleaves sources by arrival, not by
+// ordered by event time. Tail interleaves sources by arrival, not by
 // timestamp, so reviewing a finished resource (e.g. a completed Step Functions
 // execution tailed with poll + --since) otherwise reads out of order across
 // streams.
