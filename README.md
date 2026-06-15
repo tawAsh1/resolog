@@ -11,8 +11,8 @@ Most tools answer *"how do I tail a log group?"* (`aws logs tail`,
 answers the question that comes first: **given a resource, what should I even
 tail?** — then interleaves every stream it finds, docker-compose style.
 
-Flagship: hand it a Step Functions execution ARN and it tails the state machine
-plus every Lambda and Batch task that execution ran, all together.
+Main use: hand it a Step Functions execution ARN and it tails the state machine
+plus every Lambda, Batch, and ECS task that execution ran, all together.
 
 ## Install
 
@@ -37,13 +37,18 @@ resolog log-group:/aws/lambda/my-fn                 # real-time tail
 resolog --backend poll -f log-group:/my/group       # historical, then follow
 resolog --backend poll --since 1h --sort -t sfn-execution:<execution-arn>   # a finished run, in time order
 
+resolog arn:aws:ecs:us-east-1:123:task/prod/abc123  # paste a raw ARN, no scheme needed
+
 resolog ls sfn-execution <state-machine-arn>        # list executions, pick one
 resolog ls batch-job <queue>
+resolog ls ecs-task <cluster>
 resolog ls log-group /aws/lambda/
 ```
 
-References are `<scheme>:<rest>`, or a bare log group name. Schemes:
-`log-group`, `sfn-execution`, `batch-job`, `lambda`. Flags: `--backend
+References are a raw resource ARN, `<scheme>:<rest>`, or a bare log group name.
+A raw ARN dispatches by its service, so you can paste one as-is. Schemes:
+`log-group`, `sfn-execution`, `batch-job`, `lambda`, `ecs-task` (one stream per
+container). Flags: `--backend
 live|poll`, `-f` follow, `--since 10m`, `--until 5m` (window upper bound, poll),
 `--sort` (poll only; see Ordering), `-t` timestamps, `--no-color`.
 

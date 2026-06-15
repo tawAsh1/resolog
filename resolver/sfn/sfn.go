@@ -1,5 +1,5 @@
-// Package sfn is the flagship Resolver: hand it a Step Functions execution and
-// it resolves every Lambda / Batch task that execution ran, streaming new
+// Package sfn is the primary Resolver: hand it a Step Functions execution and
+// it resolves every Lambda / Batch / ECS task that execution ran, streaming new
 // sources as a running execution progresses and signalling Done when it reaches
 // a terminal state.
 //
@@ -17,6 +17,10 @@
 //     and therefore handles still-RUNNING jobs and array children too.
 //   - Without one, only completed .sync Batch tasks are mapped, cheaply, from
 //     Task{Succeeded}.Output.Container.LogStreamName — no extra API call.
+//
+// ECS tasks (ecs:runTask.sync) are handled only when a delegate is set
+// (WithECSResolver): the submitted task ARN from each Batch-style TaskSubmitted
+// is resolved through resolver/ecs, which produces one source per container.
 package sfn
 
 import (
@@ -62,11 +66,21 @@ func WithBatchResolver(batch resolog.Resolver) Option {
 	return func(r *Resolver) { r.batch = batch }
 }
 
+// WithECSResolver wires a resolver/ecs-style delegate for ECS tasks launched via
+// ecs:runTask.sync. Its reference is a task ARN. When set, each submitted task is
+// resolved through it, producing one source per container. Without it, ECS
+// tasks in the history are ignored (there is no cheap history-only path: the
+// stream name is not in the event output).
+func WithECSResolver(ecs resolog.Resolver) Option {
+	return func(r *Resolver) { r.ecs = ecs }
+}
+
 // Resolver resolves Step Functions executions into their constituent log
 // sources.
 type Resolver struct {
 	api          API
 	batch        resolog.Resolver
+	ecs          resolog.Resolver
 	pollInterval time.Duration
 }
 
@@ -97,7 +111,7 @@ func (r *Resolver) Resolve(ctx context.Context, ref string) (resolog.Resolution,
 		defer close(done)
 		var subwg sync.WaitGroup
 		r.discover(ctx, ref, desc.Status, sources, &subwg)
-		subwg.Wait() // let delegated sub-resolutions finish before closing
+		subwg.Wait() // let delegated resolutions finish before closing
 		close(sources)
 	}()
 
@@ -105,12 +119,13 @@ func (r *Resolver) Resolve(ctx context.Context, ref string) (resolog.Resolution,
 }
 
 // discover sweeps the history, emitting new sources and (when a delegate is set)
-// fanning in delegated Batch sub-resolutions, until the execution is terminal.
+// merging in the delegated Batch / ECS resolutions, until the execution is
+// terminal.
 func (r *Resolver) discover(ctx context.Context, arn string, status types.ExecutionStatus, out chan<- resolog.Source, subwg *sync.WaitGroup) {
 	seen := map[string]bool{}
-	seenJobs := map[string]bool{}
+	seenDelegated := map[string]bool{}
 	for {
-		srcs, jobIDs, err := r.sweep(ctx, arn)
+		srcs, jobIDs, taskARNs, err := r.sweep(ctx, arn)
 		if err != nil {
 			return
 		}
@@ -126,15 +141,10 @@ func (r *Resolver) discover(ctx context.Context, arn string, status types.Execut
 			}
 		}
 		for _, jid := range jobIDs {
-			if seenJobs[jid] {
-				continue
-			}
-			seenJobs[jid] = true
-			subwg.Add(1)
-			go func(id string) {
-				defer subwg.Done()
-				r.pumpDelegate(ctx, id, out)
-			}(jid)
+			r.spawnDelegate(ctx, r.batch, jid, seenDelegated, out, subwg)
+		}
+		for _, tarn := range taskARNs {
+			r.spawnDelegate(ctx, r.ecs, tarn, seenDelegated, out, subwg)
 		}
 
 		if status != types.ExecutionStatusRunning && status != types.ExecutionStatusPendingRedrive {
@@ -153,11 +163,25 @@ func (r *Resolver) discover(ctx context.Context, arn string, status types.Execut
 	}
 }
 
-// pumpDelegate resolves a Batch job id through the delegate and forwards its
-// sources into out. The delegate's Done is ignored; the execution's own Done
-// governs shutdown.
-func (r *Resolver) pumpDelegate(ctx context.Context, jobID string, out chan<- resolog.Source) {
-	res, err := r.batch.Resolve(ctx, jobID)
+// spawnDelegate resolves ref through delegate on a tracked goroutine, forwarding
+// its sources into out. ref is checked against seen so a repeated history sweep
+// does not re-resolve the same task. Nil delegate or already-seen ref is a no-op.
+func (r *Resolver) spawnDelegate(ctx context.Context, delegate resolog.Resolver, ref string, seen map[string]bool, out chan<- resolog.Source, subwg *sync.WaitGroup) {
+	if delegate == nil || seen[ref] {
+		return
+	}
+	seen[ref] = true
+	subwg.Add(1)
+	go func() {
+		defer subwg.Done()
+		r.pumpDelegate(ctx, delegate, ref, out)
+	}()
+}
+
+// pumpDelegate resolves ref through delegate and forwards its sources into out.
+// The delegate's Done is ignored; the execution's own Done governs shutdown.
+func (r *Resolver) pumpDelegate(ctx context.Context, delegate resolog.Resolver, ref string, out chan<- resolog.Source) {
+	res, err := delegate.Resolve(ctx, ref)
 	if err != nil {
 		return
 	}
@@ -178,9 +202,10 @@ func (r *Resolver) pumpDelegate(ctx context.Context, jobID string, out chan<- re
 	}
 }
 
-// sweep pages the full execution history and maps it to sources (and, when a
-// delegate is set, Batch job ids to resolve through it).
-func (r *Resolver) sweep(ctx context.Context, arn string) (srcs []resolog.Source, jobIDs []string, err error) {
+// sweep pages the full execution history and maps it to sources, plus the
+// delegated work each pass turns up: Batch job ids and ECS task ARNs to resolve
+// through their delegates (when set).
+func (r *Resolver) sweep(ctx context.Context, arn string) (srcs []resolog.Source, jobIDs []string, taskARNs []string, err error) {
 	var token *string
 	includeData := true
 	for {
@@ -190,13 +215,22 @@ func (r *Resolver) sweep(ctx context.Context, arn string) (srcs []resolog.Source
 			NextToken:            token,
 		})
 		if perr != nil {
-			return nil, nil, perr
+			return nil, nil, nil, perr
 		}
 		for i := range page.Events {
 			e := page.Events[i]
 			if s, ok := lambdaFromEvent(e); ok {
 				srcs = append(srcs, s)
 				continue
+			}
+			// ECS before Batch: both appear as TaskSubmitted, distinguished by
+			// ResourceType, and the Batch branch below consumes the event
+			// unconditionally when a Batch delegate is set.
+			if r.ecs != nil {
+				if arns := ecsTaskARNs(e); len(arns) > 0 {
+					taskARNs = append(taskARNs, arns...)
+					continue
+				}
 			}
 			if r.batch != nil {
 				if jid, ok := batchJobID(e); ok {
@@ -209,7 +243,7 @@ func (r *Resolver) sweep(ctx context.Context, arn string) (srcs []resolog.Source
 			}
 		}
 		if page.NextToken == nil {
-			return srcs, jobIDs, nil
+			return srcs, jobIDs, taskARNs, nil
 		}
 		token = page.NextToken
 	}
@@ -242,6 +276,30 @@ func batchJobID(e types.HistoryEvent) (string, bool) {
 		return "", false
 	}
 	return o.JobId, true
+}
+
+// ecsTaskARNs extracts the submitted ECS task ARNs from a runTask.sync
+// TaskSubmitted event, for delegation. The output is the RunTask response, whose
+// Tasks[].TaskArn each carry the cluster the ecs resolver needs.
+func ecsTaskARNs(e types.HistoryEvent) []string {
+	if e.TaskSubmittedEventDetails == nil || deref(e.TaskSubmittedEventDetails.ResourceType) != "ecs" {
+		return nil
+	}
+	var o struct {
+		Tasks []struct {
+			TaskArn string `json:"TaskArn"`
+		} `json:"Tasks"`
+	}
+	if err := json.Unmarshal([]byte(deref(e.TaskSubmittedEventDetails.Output)), &o); err != nil {
+		return nil
+	}
+	var arns []string
+	for _, t := range o.Tasks {
+		if t.TaskArn != "" {
+			arns = append(arns, t.TaskArn)
+		}
+	}
+	return arns
 }
 
 // batchSourceFromEvent is the cheap, no-delegate path: a completed .sync Batch

@@ -1,6 +1,6 @@
 // Package batch resolves AWS Batch jobs into their CloudWatch log sources. This
 // is the resolver batchkoi consumes (or supplies its own logic to): array jobs
-// fan out into one Source per child index, mirroring batchkoi's colored,
+// expand into one Source per child index, mirroring batchkoi's colored,
 // interleaved behavior. It is also what resolver/sfn delegates to for Batch
 // tasks that are still running (where only a JobId, not a log stream, is known).
 //

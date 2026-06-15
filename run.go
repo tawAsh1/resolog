@@ -72,7 +72,7 @@ func Tail(ctx context.Context, res Resolution, backend Backend, sink Sink, opts 
 		}()
 	}
 
-	// Discovery + fan-in: spawn a streamer per source as it appears.
+	// Discovery and merge: spawn a streamer per source as it appears.
 	var wg sync.WaitGroup
 	go func() {
 		defer func() {

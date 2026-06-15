@@ -12,7 +12,7 @@
 //	Backend   a log source       -> a stream of events
 //	Sink      a stream of events -> output (the default Sink is a TUI renderer)
 //
-// The flagship Resolver is sfn-execution: hand it a Step Functions execution
+// The primary Resolver is sfn-execution: hand it a Step Functions execution
 // ARN and it resolves the state machine plus every Lambda / Batch / ECS task
 // it ran, and tails them all together.
 //

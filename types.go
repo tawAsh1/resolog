@@ -96,10 +96,10 @@ type ResourceRef struct {
 	StartedAt time.Time
 }
 
-// Lister is the dual of a Resolver: where Resolve maps ref -> sources, List
+// Lister is the inverse of a Resolver: where Resolve maps ref -> sources, List
 // maps a kind -> the refs that exist. It is an optional, separate interface so
 // a Resolver can implement it (or not); CLI code type-asserts for it to offer
-// "list -> pick -> tail" in one breath.
+// "list -> pick -> tail" in one step.
 //
 // Cleanly enumerable kinds have an enumerate API (log groups, SFn executions,
 // Batch jobs, Lambdas). EC2 does not ("does this instance even have logs?"),

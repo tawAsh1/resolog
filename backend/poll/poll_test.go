@@ -113,7 +113,7 @@ func TestStreamFollowDedupesBoundary(t *testing.T) {
 			got = append(got, e)
 		case <-timeout:
 			cancel()
-			t.Fatalf("got %d events, want 2 (boundary dedup failed?)", len(got))
+			t.Fatalf("got %d events, want 2 (boundary duplicate not removed?)", len(got))
 		}
 	}
 	cancel()
