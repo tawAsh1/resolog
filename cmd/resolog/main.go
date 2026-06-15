@@ -25,6 +25,7 @@ import (
 	awsecs "github.com/aws/aws-sdk-go-v2/service/ecs"
 	awslambda "github.com/aws/aws-sdk-go-v2/service/lambda"
 	awssfn "github.com/aws/aws-sdk-go-v2/service/sfn"
+	awssts "github.com/aws/aws-sdk-go-v2/service/sts"
 	"golang.org/x/term"
 
 	"github.com/tawAsh1/resolog"
@@ -110,7 +111,7 @@ func runTail(argv []string) error {
 	if *until > 0 {
 		untilTime = time.Now().Add(-*until)
 	}
-	backend, err := buildBackend(*backendName, cfg, poll.Options{Follow: *follow, Since: sinceTime, Until: untilTime})
+	backend, err := buildBackend(ctx, *backendName, cfg, poll.Options{Follow: *follow, Since: sinceTime, Until: untilTime})
 	if err != nil {
 		return err
 	}
@@ -332,7 +333,7 @@ func isKnownScheme(s string, resolvers map[string]resolog.Resolver) bool {
 	return ok
 }
 
-func buildBackend(name string, cfg *aws.Config, opts poll.Options) (resolog.Backend, error) {
+func buildBackend(ctx context.Context, name string, cfg *aws.Config, opts poll.Options) (resolog.Backend, error) {
 	switch name {
 	case "poll":
 		if cfg == nil {
@@ -343,10 +344,26 @@ func buildBackend(name string, cfg *aws.Config, opts poll.Options) (resolog.Back
 		if cfg == nil {
 			return nil, fmt.Errorf("backend %q needs AWS config, which failed to load", name)
 		}
-		return livetail.New(cwl.NewFromConfig(*cfg)), nil
+		// StartLiveTail identifies log groups by ARN, so the live backend needs the
+		// caller's account id (region comes from the config). One STS call at start.
+		account, err := callerAccount(ctx, *cfg)
+		if err != nil {
+			return nil, fmt.Errorf("backend %q: %w", name, err)
+		}
+		return livetail.New(cwl.NewFromConfig(*cfg), cfg.Region, account), nil
 	default:
 		return nil, fmt.Errorf("unknown backend %q", name)
 	}
+}
+
+// callerAccount returns the AWS account id of the active credentials via STS
+// GetCallerIdentity. The live backend needs it to form log-group ARNs.
+func callerAccount(ctx context.Context, cfg aws.Config) (string, error) {
+	out, err := awssts.NewFromConfig(cfg).GetCallerIdentity(ctx, &awssts.GetCallerIdentityInput{})
+	if err != nil {
+		return "", fmt.Errorf("resolving AWS account id (sts:GetCallerIdentity): %w", err)
+	}
+	return aws.ToString(out.Account), nil
 }
 
 func dash(s string) string {

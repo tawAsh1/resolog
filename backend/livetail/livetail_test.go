@@ -31,6 +31,48 @@ func TestConvertFoldsStreamForGroupWideSource(t *testing.T) {
 	}
 }
 
+func TestArnForBuildsStartLiveTailARN(t *testing.T) {
+	b := New(nil, "ap-northeast-1", "123456789012")
+	got, err := b.arnFor("/aws/batch/job")
+	if err != nil {
+		t.Fatalf("arnFor: %v", err)
+	}
+	want := "arn:aws:logs:ap-northeast-1:123456789012:log-group:/aws/batch/job"
+	if got != want {
+		t.Errorf("arnFor = %q, want %q", got, want)
+	}
+	if got[len(got)-2:] == ":*" {
+		t.Error("StartLiveTail ARN must not end with :*")
+	}
+}
+
+func TestArnForPartitions(t *testing.T) {
+	cases := map[string]string{
+		"ap-northeast-1": "aws",
+		"cn-north-1":     "aws-cn",
+		"us-gov-west-1":  "aws-us-gov",
+	}
+	for region, part := range cases {
+		got, err := New(nil, region, "111").arnFor("g")
+		if err != nil {
+			t.Fatalf("arnFor(%s): %v", region, err)
+		}
+		want := "arn:" + part + ":logs:" + region + ":111:log-group:g"
+		if got != want {
+			t.Errorf("region %s: arnFor = %q, want %q", region, got, want)
+		}
+	}
+}
+
+func TestArnForRequiresRegionAndAccount(t *testing.T) {
+	if _, err := New(nil, "", "123").arnFor("g"); err == nil {
+		t.Error("missing region should error")
+	}
+	if _, err := New(nil, "us-east-1", "").arnFor("g"); err == nil {
+		t.Error("missing account should error")
+	}
+}
+
 func TestConvertKeepsLabelForSingleStreamSource(t *testing.T) {
 	src := resolog.Source{Key: "k", Label: "λ fn", LogGroup: "/aws/lambda/fn", LogStream: "2024/01/01/[$LATEST]abc"}
 	e := cwltypes.LiveTailSessionLogEvent{Message: aws.String("x"), LogStreamName: aws.String("2024/01/01/[$LATEST]abc")}
